@@ -28,6 +28,18 @@ GHOST_ENABLED = False
 # Ghost style: 'filled' or 'outline'
 GHOST_STYLE = 'filled'  # options: 'filled', 'outline'
 
+# Menu fixed size
+MENU_WIDTH = 600
+MENU_HEIGHT = 600
+
+# Grid presets: (cols, rows)
+GRID_PRESETS = [
+    (10, 20),  # standard
+    (10, 40),
+    (20, 40),
+    (40, 40)
+]
+
 def get_window_size():
     root = tk.Tk()
     root.withdraw()
@@ -261,64 +273,173 @@ def get_player_name(surface):
 def load_leaderboard():
     if not os.path.exists(LEADERBOARD_FILE):
         return []
+    entries = []
     with open(LEADERBOARD_FILE, "r") as f:
-        lines = [line.strip().split(" ", 1) for line in f if line.strip()]
-    return [(n, int(s)) for s, n in (line for line in [(l[0], l[1]) if len(l) > 1 else ("0", "Unknown") for l in lines])]
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split(' ', 2)
+            # expected: score size name  (e.g. "1234 10x20 Alice")
+            if len(parts) == 3:
+                score_str, size_str, name = parts
+                try:
+                    score = int(score_str)
+                except ValueError:
+                    score = 0
+                if 'x' in size_str:
+                    try:
+                        cols_str, rows_str = size_str.split('x')
+                        cols = int(cols_str)
+                        rows = int(rows_str)
+                    except Exception:
+                        cols = None
+                        rows = None
+                else:
+                    cols = None
+                    rows = None
+                entries.append((name, score, cols, rows))
+            else:
+                # fallback to old format: score name
+                parts2 = line.split(' ', 1)
+                if len(parts2) == 2:
+                    score_str, name = parts2
+                    try:
+                        score = int(score_str)
+                    except ValueError:
+                        score = 0
+                    entries.append((name, score, None, None))
+    return entries
 
 def save_leaderboard(entries):
     with open(LEADERBOARD_FILE, "w") as f:
-        for name, score in entries:
-            f.write(f"{score} {name}\n")
+        for name, score, cols, rows in entries:
+            if cols and rows:
+                f.write(f"{score} {cols}x{rows} {name}\n")
+            else:
+                f.write(f"{score} {name}\n")
 
-def update_leaderboard(name, score):
+def update_leaderboard(name, score, cols=None, rows=None):
     leaderboard = load_leaderboard()
-    leaderboard.append((name, score))
+    leaderboard.append((name, score, cols, rows))
     leaderboard.sort(key=lambda x: x[1], reverse=True)
     leaderboard = leaderboard[:5]
     save_leaderboard(leaderboard)
 
-def draw_menu(surface, highscore):
+def draw_menu(surface, highscore, selected_preset=0):
     surface.fill((30, 30, 30))
     font_big = pygame.font.SysFont("comicsans", 48)
     font_small = pygame.font.SysFont("comicsans", 24)
     font_mini = pygame.font.SysFont("comicsans", 18)
 
+    # Gesamtbreite (Spielfeld + Sidebar)
+    total_width = SCREEN_WIDTH + SIDEBAR_WIDTH
+
     title = font_big.render("TETRIS ENHANCED", True, (0, 255, 255))
-    # Mittig im Fenster, niemals außerhalb
-    title_x = max(0, min(SCREEN_WIDTH // 2 - title.get_width() // 2, SCREEN_WIDTH - title.get_width()))
+    title_x = max(0, min(total_width // 2 - title.get_width() // 2, total_width - title.get_width()))
     surface.blit(title, (title_x, 20))
 
-    button_rect = pygame.Rect(SCREEN_WIDTH // 2 - 75, 150, 150, 50)
-    pygame.draw.rect(surface, (0, 200, 0), button_rect)
+    # Spaltenaufteilung: linke Spalte für Optionen, rechte Spalte für Leaderboard
+    left_x = int(total_width * 0.06)
+    left_width = int(total_width * 0.44)
+    right_x = int(total_width * 0.56)
+
+    mouse_x, mouse_y = pygame.mouse.get_pos()
+
+    # Start-Button (linke Spalte)
+    button_rect = pygame.Rect(left_x + left_width // 2 - 75, 150, 150, 50)
+    btn_color = (0, 200, 0)
+    if button_rect.collidepoint((mouse_x, mouse_y)):
+        btn_color = (0, 230, 0)
+    pygame.draw.rect(surface, btn_color, button_rect, border_radius=6)
     button_text = font_small.render("START", True, (255, 255, 255))
     surface.blit(button_text, (button_rect.x + 35, button_rect.y + 10))
 
-    # Leaderboard
-    leaderboard = load_leaderboard()
-    y_pos = 250
-    surface.blit(font_small.render("Leaderboard:", True, (255, 255, 0)), (20, y_pos))
-    for i, (name, score) in enumerate(leaderboard):
-        y_pos += 25
-        surface.blit(font_mini.render(f"{i+1}. {name} - {score}", True, (255, 255, 255)), (30, y_pos))
+    # Generic option button size
+    opt_w = left_width - 40
+    opt_h = 36
+    opt_x = left_x + 20
 
-    # Ghost toggle
+    # Ghost option (button with small icon)
+    ghost_btn_rect = pygame.Rect(opt_x, 220, opt_w, opt_h)
+    ghost_bg = (50, 50, 50)
+    if ghost_btn_rect.collidepoint((mouse_x, mouse_y)):
+        ghost_bg = (80, 80, 80)
+    pygame.draw.rect(surface, ghost_bg, ghost_btn_rect, border_radius=4)
+    # icon
+    icon_rect = pygame.Rect(ghost_btn_rect.x + 6, ghost_btn_rect.y + 6, opt_h - 12, opt_h - 12)
+    if GHOST_STYLE == 'filled' and GHOST_ENABLED:
+        pygame.draw.rect(surface, (200, 200, 200), icon_rect)
+    else:
+        pygame.draw.rect(surface, (200, 200, 200), icon_rect, 2)
     ghost_label = font_small.render(f"Ghost: {'ON' if GHOST_ENABLED else 'OFF'}", True, (255, 255, 255))
-    ghost_rect = ghost_label.get_rect(topleft=(SCREEN_WIDTH // 2 - ghost_label.get_width() // 2, 220))
-    surface.blit(ghost_label, ghost_rect.topleft)
+    surface.blit(ghost_label, (icon_rect.right + 8, ghost_btn_rect.y + 6))
 
-    # Ghost style
+    # Ghost style toggle (smaller button)
+    style_btn_rect = pygame.Rect(opt_x, 260, opt_w, opt_h)
+    style_bg = (50, 50, 50)
+    if style_btn_rect.collidepoint((mouse_x, mouse_y)):
+        style_bg = (80, 80, 80)
+    pygame.draw.rect(surface, style_bg, style_btn_rect, border_radius=4)
+    # style icon
+    s_icon = pygame.Rect(style_btn_rect.x + 6, style_btn_rect.y + 6, opt_h - 12, opt_h - 12)
+    if GHOST_STYLE == 'filled':
+        pygame.draw.rect(surface, (180, 180, 255), s_icon)
+    else:
+        pygame.draw.rect(surface, (180, 180, 255), s_icon, 2)
     style_label = font_small.render(f"Ghost style: {GHOST_STYLE}", True, (255, 255, 255))
-    style_rect = style_label.get_rect(topleft=(SCREEN_WIDTH // 2 - style_label.get_width() // 2, 250))
-    surface.blit(style_label, style_rect.topleft)
+    surface.blit(style_label, (s_icon.right + 8, style_btn_rect.y + 6))
 
-    # Debounce display
+    # Debounce option
+    debounce_btn_rect = pygame.Rect(opt_x, 300, opt_w, opt_h)
+    debounce_bg = (50, 50, 50)
+    if debounce_btn_rect.collidepoint((mouse_x, mouse_y)):
+        debounce_bg = (80, 80, 80)
+    pygame.draw.rect(surface, debounce_bg, debounce_btn_rect, border_radius=4)
+    # debounce icon: small +/- box
+    d_icon = pygame.Rect(debounce_btn_rect.x + 6, debounce_btn_rect.y + 6, opt_h - 12, opt_h - 12)
+    pygame.draw.rect(surface, (200, 200, 100), d_icon, border_radius=2)
     debounce_label = font_small.render(f"Debounce: {DEBOUNCE_MS}ms", True, (255, 255, 255))
-    debounce_rect = debounce_label.get_rect(topleft=(SCREEN_WIDTH // 2 - debounce_label.get_width() // 2, 280))
-    surface.blit(debounce_label, debounce_rect.topleft)
+    surface.blit(debounce_label, (d_icon.right + 8, debounce_btn_rect.y + 6))
 
+    # Leaderboard (rechts)
+    surface.blit(font_small.render("Leaderboard:", True, (255, 255, 0)), (right_x, 140))
+    y_pos = 170
+    leaderboard = load_leaderboard()
+    for i, entry in enumerate(leaderboard):
+        # entry is (name, score, cols, rows)
+        if len(entry) >= 4:
+            name, score, cols, rows = entry
+        else:
+            name, score = entry[0], entry[1]
+            cols = rows = None
+        size_text = f" {cols}x{rows}" if cols and rows else ""
+        surface.blit(font_mini.render(f"{i+1}. {name} - {score}{size_text}", True, (255, 255, 255)), (right_x + 10, y_pos))
+        y_pos += 25
+
+    # Preset buttons (labels 1-4) in left column below options (larger)
+    preset_rects = []
+    px = left_x + 20
+    py = 340
+    preset_w = opt_w
+    preset_h = opt_h + 8
+    for i, (c, r) in enumerate(GRID_PRESETS):
+        rect = pygame.Rect(px, py + i * (preset_h + 8), preset_w, preset_h)
+        bg = (60, 60, 60)
+        if i == selected_preset:
+            bg = (100, 100, 120)
+        if rect.collidepoint((mouse_x, mouse_y)):
+            bg = (90, 90, 90)
+        pygame.draw.rect(surface, bg, rect, border_radius=6)
+        text = font_small.render(f"{i+1}: {c}x{r}", True, (255, 255, 255))
+        surface.blit(text, (rect.x + 12, rect.y + 6))
+        preset_rects.append(rect)
+
+    # Shortcut hint line
+    hint = font_mini.render("Shortcuts: S/Enter Start  G Ghost  T Style  D Debounce  1-4 Presets", True, (180, 180, 180))
+    surface.blit(hint, (left_x + 10, MENU_HEIGHT - 30))
     pygame.display.update()
-    pygame.display.update()
-    return button_rect, ghost_rect, style_rect, debounce_rect
+    return button_rect, ghost_btn_rect, style_btn_rect, debounce_btn_rect, preset_rects
 
 def select_level(surface):
     levels = [0, 4, 8, 12, 16, 20]
@@ -417,7 +538,7 @@ def game_loop(win, highscore, start_level):
                 if not valid_space(current_piece.shape, grid, (current_piece.x, current_piece.y)):
                     draw_game_over(win, score)
                     name = get_player_name(win)
-                    update_leaderboard(name, score)
+                    update_leaderboard(name, score, COLUMNS, ROWS)
                     run = False
 
         for event in pygame.event.get():
@@ -509,7 +630,7 @@ def game_loop(win, highscore, start_level):
                     if not valid_space(current_piece.shape, grid, (current_piece.x, current_piece.y)):
                         draw_game_over(win, score)
                         name = get_player_name(win)
-                        update_leaderboard(name, score)
+                        update_leaderboard(name, score, COLUMNS, ROWS)
                         run = False
             if event.type == pygame.KEYUP:
                 if event.key == pygame.K_LEFT:
@@ -529,58 +650,89 @@ def game_loop(win, highscore, start_level):
     return highscore
 
 def main():
-    global SCREEN_WIDTH, SCREEN_HEIGHT, COLUMNS, ROWS
-    SCREEN_WIDTH, SCREEN_HEIGHT = get_window_size()
-    COLUMNS = SCREEN_WIDTH // GRID_SIZE
-    ROWS = SCREEN_HEIGHT // GRID_SIZE
-
-    # Dynamische Sidebar-Breite: 20% der Breite, begrenzt
-    global SIDEBAR_WIDTH
-    SIDEBAR_WIDTH = max(120, min(300, SCREEN_WIDTH // 5))
-
+    global SCREEN_WIDTH, SCREEN_HEIGHT, COLUMNS, ROWS, SIDEBAR_WIDTH, GHOST_ENABLED, GHOST_STYLE, DEBOUNCE_MS
     pygame.init()
-    win = pygame.display.set_mode((SCREEN_WIDTH + SIDEBAR_WIDTH, SCREEN_HEIGHT))
-    pygame.display.set_caption("Tetris Enhanced")
     highscore = 0
 
+    # Menu runs in fixed-size window
+    menu_win = pygame.display.set_mode((MENU_WIDTH, MENU_HEIGHT))
+    pygame.display.set_caption("Tetris Enhanced - Menu")
+
+    selected_preset = 0
     running = True
     while running:
-        button_rect, ghost_rect, style_rect, debounce_rect = draw_menu(win, highscore)
+        button_rect, ghost_rect, style_rect, debounce_rect, preset_rects = draw_menu(menu_win, highscore, selected_preset)
         menu = True
         while menu:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
                     menu = False
-                if event.type == pygame.MOUSEBUTTONDOWN:
-                    if button_rect.collidepoint(event.pos):
+                elif event.type == pygame.KEYDOWN:
+                    # Shortcuts: S/ENTER start, G ghost toggle, T style toggle, D debounce, 1-4 presets
+                    if event.key in (pygame.K_s, pygame.K_RETURN):
                         menu = False
-                    if ghost_rect.collidepoint(event.pos):
-                        # toggle ghost
-                        global GHOST_ENABLED
+                        break
+                    if event.key == pygame.K_g:
                         GHOST_ENABLED = not GHOST_ENABLED
-                        # redraw menu to show new state
-                        button_rect, ghost_rect, style_rect, debounce_rect = draw_menu(win, highscore)
-                    if style_rect.collidepoint(event.pos):
-                        # toggle ghost style
-                        global GHOST_STYLE
+                        button_rect, ghost_rect, style_rect, debounce_rect, preset_rects = draw_menu(menu_win, highscore, selected_preset)
+                    if event.key == pygame.K_t:
                         GHOST_STYLE = 'outline' if GHOST_STYLE == 'filled' else 'filled'
-                        button_rect, ghost_rect, style_rect, debounce_rect = draw_menu(win, highscore)
-                    if debounce_rect.collidepoint(event.pos):
-                        # cycle debounce values: 50, 100, 150, 250
-                        global DEBOUNCE_MS
+                        button_rect, ghost_rect, style_rect, debounce_rect, preset_rects = draw_menu(menu_win, highscore, selected_preset)
+                    if event.key == pygame.K_d:
                         options = [50, 100, 150, 250]
                         try:
                             idx = options.index(DEBOUNCE_MS)
                             DEBOUNCE_MS = options[(idx + 1) % len(options)]
                         except ValueError:
                             DEBOUNCE_MS = 150
-                        button_rect, ghost_rect, style_rect, debounce_rect = draw_menu(win, highscore)
+                        button_rect, ghost_rect, style_rect, debounce_rect, preset_rects = draw_menu(menu_win, highscore, selected_preset)
+                    if event.key in (pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4):
+                        selected_preset = int(event.unicode) - 1
+                        button_rect, ghost_rect, style_rect, debounce_rect, preset_rects = draw_menu(menu_win, highscore, selected_preset)
+                elif event.type == pygame.MOUSEBUTTONDOWN:
+                    pos = event.pos
+                    # map mouse pos to menu coordinates (menu_win)
+                    if button_rect.collidepoint(pos):
+                        menu = False
+                        break
+                    if ghost_rect.collidepoint(pos):
+                        GHOST_ENABLED = not GHOST_ENABLED
+                        button_rect, ghost_rect, style_rect, debounce_rect, preset_rects = draw_menu(menu_win, highscore, selected_preset)
+                    if style_rect.collidepoint(pos):
+                        GHOST_STYLE = 'outline' if GHOST_STYLE == 'filled' else 'filled'
+                        button_rect, ghost_rect, style_rect, debounce_rect, preset_rects = draw_menu(menu_win, highscore, selected_preset)
+                    if debounce_rect.collidepoint(pos):
+                        options = [50, 100, 150, 250]
+                        try:
+                            idx = options.index(DEBOUNCE_MS)
+                            DEBOUNCE_MS = options[(idx + 1) % len(options)]
+                        except ValueError:
+                            DEBOUNCE_MS = 150
+                        button_rect, ghost_rect, style_rect, debounce_rect, preset_rects = draw_menu(menu_win, highscore, selected_preset)
+                    # presets
+                    for idx, rect in enumerate(preset_rects):
+                        if rect.collidepoint(pos):
+                            selected_preset = idx
+                            button_rect, ghost_rect, style_rect, debounce_rect, preset_rects = draw_menu(menu_win, highscore, selected_preset)
             pygame.time.delay(10)
 
-        if running:
-            start_level = select_level(win)
-            game_loop(win, highscore, start_level)
+        if not running:
+            break
+
+        # Start game with selected preset
+        cols, rows = GRID_PRESETS[selected_preset]
+        SCREEN_WIDTH = cols * GRID_SIZE
+        SCREEN_HEIGHT = rows * GRID_SIZE
+        COLUMNS = cols
+        ROWS = rows
+        SIDEBAR_WIDTH = max(120, min(300, SCREEN_WIDTH // 5))
+
+        # Initialize game window sized for play area + sidebar
+        win = pygame.display.set_mode((SCREEN_WIDTH + SIDEBAR_WIDTH, SCREEN_HEIGHT))
+        pygame.display.set_caption("Tetris Enhanced")
+        start_level = select_level(win)
+        game_loop(win, highscore, start_level)
 
     pygame.quit()
 
