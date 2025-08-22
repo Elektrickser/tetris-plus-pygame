@@ -14,3 +14,5 @@ You can toggle Ghost mode in the main menu. The project now also includes a smal
 1. clone the repository or download the ZIP
 2. install dependencies:
   pip install -r requirements.txt 
+3. run the game:
+  python ".\tetris v1.py"
